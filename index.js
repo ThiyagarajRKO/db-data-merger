@@ -128,22 +128,28 @@ const copyData = async (db2Connection, db3Connection, table) => {
   //       "settings",
   //       "simple_sliders",
   //       "simple_slider_items",
-
-  const [result2] = await db3Connection.query(copyFromTable2Query);
-  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
-
   if (
-    [
-      "entrepreneurs",
-      "trainees",
-      "training_title",
-      "training_title_financial_details",
-      "msme_candidate_details",
+    ![
+      "backend_menus",
+      "menus",
+      "menu_category",
+      "menu_locations",
+      "menu_nodes",
+      "pages",
+      "categories",
+      "posts",
+      "simple_sliders",
+      "simple_slider_items",
+      "tags",
+      "settings",
     ].includes(table)
   ) {
     const [result1] = await db3Connection.query(copyFromTable1Query);
     console.log("Table: Live, Rows inserted:", result1.affectedRows);
   }
+
+  const [result2] = await db3Connection.query(copyFromTable2Query);
+  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
 
   if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
 
