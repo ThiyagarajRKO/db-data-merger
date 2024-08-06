@@ -59,7 +59,7 @@ const copyData = async (db2Connection, db3Connection, table) => {
     .join(",");
 
   // Disable foreign key checks (if necessary)
-  const disableFKChecks = `SET FOREIGN_KEY_CHECKS=1`;
+  const disableFKChecks = `SET FOREIGN_KEY_CHECKS=0`;
 
   const disableStrictMode = `SET SESSION sql_mode = ''`;
 
@@ -102,7 +102,7 @@ const copyData = async (db2Connection, db3Connection, table) => {
   const enableStrictMode = `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`;
 
   // Execute the queries sequentially
-  await db3Connection.query(disableFKChecks);
+  //   await db3Connection.query(disableFKChecks);
 
   await db3Connection.query(disableStrictMode);
 
@@ -129,9 +129,11 @@ const copyData = async (db2Connection, db3Connection, table) => {
   //       "simple_sliders",
   //       "simple_slider_items",
 
+  const [result2] = await db3Connection.query(copyFromTable2Query);
+  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
+
   if (
     [
-      "annual_action_plan",
       "entrepreneurs",
       "trainees",
       "training_title",
@@ -142,9 +144,6 @@ const copyData = async (db2Connection, db3Connection, table) => {
     const [result1] = await db3Connection.query(copyFromTable1Query);
     console.log("Table: Live, Rows inserted:", result1.affectedRows);
   }
-
-  const [result2] = await db3Connection.query(copyFromTable2Query);
-  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
 
   if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
 
