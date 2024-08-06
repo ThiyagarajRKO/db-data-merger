@@ -59,7 +59,7 @@ const copyData = async (db2Connection, db3Connection, table) => {
     .join(",");
 
   // Disable foreign key checks (if necessary)
-  const disableFKChecks = `SET FOREIGN_KEY_CHECKS=0`;
+  const disableFKChecks = `SET FOREIGN_KEY_CHECKS=1`;
 
   const disableStrictMode = `SET SESSION sql_mode = ''`;
 
@@ -112,30 +112,43 @@ const copyData = async (db2Connection, db3Connection, table) => {
 
   if (autIncCol[0]) await db3Connection.query(disableAutoIncrement);
 
+  // Data Backup
+
+  //   "attribute_options",
+  //       "categories",
+  //       "dashboard_widget_settings",
+  //       "media_files",
+  //       "media_folders",
+  //       "media_settings",
+  //       "menus",
+  //       "menu_locations",
+  //       "menu_nodes",
+  //       "meta_boxes",
+  //       "pages",
+  //       "settings",
+  //       "simple_sliders",
+  //       "simple_slider_items",
+
   if (
-    ![
-      "attribute_options",
-      "categories",
-      "dashboard_widget_settings",
-      "media_files",
-      "media_folders",
-      "media_settings",
-      "menus",
-      "menu_locations",
-      "menu_nodes",
-      "meta_boxes",
+    [
+      "annual_action_plan",
+      "entrepreneurs",
+      "trainees",
+      "training_title",
+      "training_title_financial_details",
+      "msme_candidate_details",
     ].includes(table)
   ) {
-    const [results] = await db3Connection.query(copyFromTable1Query);
-    console.log("Table 1 Rows inserted:", results.affectedRows);
+    const [result1] = await db3Connection.query(copyFromTable1Query);
+    console.log("Table: Live, Rows inserted:", result1.affectedRows);
   }
 
-  const [result1] = await db3Connection.query(copyFromTable2Query);
-  console.log("Table 2 Rows inserted:", result1.affectedRows);
+  const [result2] = await db3Connection.query(copyFromTable2Query);
+  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
 
   if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
 
-  await db3Connection.query(enableFKChecks);
+  //   await db3Connection.query(enableFKChecks);
 
   await db3Connection.query(enableStrictMode);
 };

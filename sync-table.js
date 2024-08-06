@@ -55,7 +55,17 @@ const syncTables = async (db1Connection, db2Connection, table) => {
 
     // Create the column list and placeholders for the SQL query
     let columnsList = columnsB.join("`,`");
-    let placeholders = columnsB.map((col) => `b.${col}`).join(", ");
+    // let placeholders = columnsB.map((col) => `b.${col}`).join(", ");
+
+    let placeholders = columnsB
+      .map((col) => {
+        if (col == "submit_date") {
+          return `CASE WHEN b.submit_date = '0000-00-00' THEN NULL ELSE b.submit_date END as submit_date`;
+        } else {
+          return `\`b\`.\`${col}\``;
+        }
+      })
+      .join(",");
 
     // Prepare the SQL query
     let insertQuery = `INSERT INTO \`${db1Config.database}\`.\`${table}\` (\`${columnsList}\`)
@@ -90,8 +100,18 @@ const compareDatabases = async () => {
     );
 
     for (const table of commonTables) {
-      console.log("Processing Table:", table);
-      await syncTables(db1Connection, db2Connection, table);
+      if (
+        [
+          "annual_action_plan",
+          "trainees",
+          "training_title",
+          "training_title_financial_details",
+          "msme_candidate_details",
+        ].includes(table)
+      ) {
+        console.log("Processing Table:", table);
+        await syncTables(db1Connection, db2Connection, table);
+      }
     }
   } catch (err) {
     console.error("Error:", err.message);
