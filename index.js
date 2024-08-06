@@ -102,7 +102,7 @@ const copyData = async (db2Connection, db3Connection, table) => {
   const enableStrictMode = `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`;
 
   // Execute the queries sequentially
-  //   await db3Connection.query(disableFKChecks);
+  await db3Connection.query(disableFKChecks);
 
   await db3Connection.query(disableStrictMode);
 
@@ -128,6 +128,10 @@ const copyData = async (db2Connection, db3Connection, table) => {
   //       "settings",
   //       "simple_sliders",
   //       "simple_slider_items",
+
+  const [result2] = await db3Connection.query(copyFromTable2Query);
+  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
+
   if (
     ![
       "backend_menus",
@@ -148,12 +152,9 @@ const copyData = async (db2Connection, db3Connection, table) => {
     console.log("Table: Live, Rows inserted:", result1.affectedRows);
   }
 
-  const [result2] = await db3Connection.query(copyFromTable2Query);
-  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
-
   if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
 
-  //   await db3Connection.query(enableFKChecks);
+  await db3Connection.query(enableFKChecks);
 
   await db3Connection.query(enableStrictMode);
 };
