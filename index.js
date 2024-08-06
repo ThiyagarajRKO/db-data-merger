@@ -255,7 +255,7 @@ const syncTrainingTitles = async (
 
         const [results] = await db3Connection.query(query);
 
-        await syncTrainees(
+        await syncTTFD(
           db2Connection,
           db3Connection,
           financial_year_id,
@@ -265,7 +265,7 @@ const syncTrainingTitles = async (
           results.insertId
         );
 
-        await syncTTFD(
+        await syncTrainees(
           db2Connection,
           db3Connection,
           financial_year_id,
