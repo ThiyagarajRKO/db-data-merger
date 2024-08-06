@@ -22,6 +22,11 @@ const db3Config = {
   database: process.env.DB3_DATABASE,
 };
 
+let annual_count = 0;
+let traning_title_count = 0;
+let trainees = 0;
+let traning_title_fd_count = 0;
+
 // Function to get columns dynamically from a table
 const getColumns = async (connection, tableName) => {
   const [results] = await connection.query(`SHOW COLUMNS FROM ${tableName}`);
@@ -102,7 +107,7 @@ const copyData = async (db2Connection, db3Connection, table) => {
   const enableStrictMode = `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`;
 
   // Execute the queries sequentially
-  await db3Connection.query(disableFKChecks);
+  //   await db3Connection.query(disableFKChecks);
 
   await db3Connection.query(disableStrictMode);
 
@@ -110,7 +115,7 @@ const copyData = async (db2Connection, db3Connection, table) => {
 
   await db3Connection.query(createTableQuery);
 
-  if (autIncCol[0]) await db3Connection.query(disableAutoIncrement);
+  //   if (autIncCol[0]) await db3Connection.query(disableAutoIncrement);
 
   // Data Backup
 
@@ -128,9 +133,6 @@ const copyData = async (db2Connection, db3Connection, table) => {
   //       "settings",
   //       "simple_sliders",
   //       "simple_slider_items",
-
-  const [result2] = await db3Connection.query(copyFromTable2Query);
-  console.log("Table: Stage, Rows inserted:", result2.affectedRows);
 
   if (
     ![
@@ -152,11 +154,238 @@ const copyData = async (db2Connection, db3Connection, table) => {
     console.log("Table: Live, Rows inserted:", result1.affectedRows);
   }
 
-  if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
+  if (
+    ![
+      "annual_action_plan",
+      "trainees",
+      "training_title",
+      "training_title_financial_details",
+    ].includes(table)
+  ) {
+    const [result2] = await db3Connection.query(copyFromTable2Query);
+    console.log("Table: Stage, Rows inserted:", result2.affectedRows);
+  }
 
-  await db3Connection.query(enableFKChecks);
+  //   if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
+
+  //   await db3Connection.query(enableFKChecks);
 
   await db3Connection.query(enableStrictMode);
+};
+
+const syncAnnualActionPlan = async (db2Connection, db3Connection) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const columns = await getColumns(db2Connection, "annual_action_plan");
+
+      // Create the column list and placeholders for the SQL query
+      const placeholders = columns
+        .map((col) => {
+          if (col == "submit_date") {
+            return `CASE WHEN submit_date = '0000-00-00' THEN NULL ELSE submit_date END as submit_date`;
+          } else {
+            return `\`${col}\``;
+          }
+        })
+        .join(",")
+        .replace("`id`,", "");
+
+      const [results] = await db2Connection.query(
+        `SELECT id FROM annual_action_plan where financial_year_id = 5 and deleted_at IS NULL`
+      );
+
+      for (const row of results) {
+        const id = row["id"];
+        // Query to copy data from table2 to new_table
+        const query = `INSERT INTO annual_action_plan (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.annual_action_plan where id = ${id};`;
+
+        const [results] = await db3Connection.query(query);
+
+        await syncTrainingTitles(
+          db2Connection,
+          db3Connection,
+          5,
+          id,
+          results.insertId
+        );
+
+        annual_count += results.affectedRows;
+      }
+
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const syncTrainingTitles = async (
+  db2Connection,
+  db3Connection,
+  financial_year_id,
+  old_annual_plan_id,
+  new_annual_plan_id
+) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const columns = await getColumns(db2Connection, "training_title");
+
+      // Create the column list and placeholders for the SQL query
+      const placeholders = columns
+        .map((col) => {
+          if (col == "submit_date") {
+            return `CASE WHEN submit_date = '0000-00-00' THEN NULL ELSE submit_date END as submit_date`;
+          } else if (col == "annual_action_plan_id") {
+            return `'${new_annual_plan_id}'`;
+          } else {
+            return `\`${col}\``;
+          }
+        })
+        .join(",")
+        .replace("`id`,", "");
+
+      const [results] = await db2Connection.query(
+        `SELECT * FROM training_title where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and deleted_at IS NULL`
+      );
+
+      for (const row of results) {
+        const id = row["id"];
+        // Query to copy data from table2 to new_table
+        const query = `INSERT INTO training_title (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.training_title WHERE id = ${id};`;
+
+        const [results] = await db3Connection.query(query);
+
+        await syncTrainees(
+          db2Connection,
+          db3Connection,
+          financial_year_id,
+          old_annual_plan_id,
+          new_annual_plan_id,
+          id,
+          results.insertId
+        );
+
+        await syncTTFD(
+          db2Connection,
+          db3Connection,
+          financial_year_id,
+          old_annual_plan_id,
+          new_annual_plan_id,
+          id,
+          results.insertId
+        );
+
+        traning_title_count += results.affectedRows;
+      }
+
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const syncTTFD = async (
+  db2Connection,
+  db3Connection,
+  financial_year_id,
+  old_annual_plan_id,
+  new_annual_plan_id,
+  old_training_title_id,
+  new_training_title_id
+) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const columns = await getColumns(
+        db2Connection,
+        "training_title_financial_details"
+      );
+
+      // Create the column list and placeholders for the SQL query
+      const placeholders = columns
+        .map((col) => {
+          if (col == "submit_date") {
+            return `CASE WHEN submit_date = '0000-00-00' THEN NULL ELSE submit_date END as submit_date`;
+          } else if (col == "annual_action_plan_id") {
+            return `'${new_annual_plan_id}'`;
+          } else if (col == "training_title_id") {
+            return `'${new_training_title_id}'`;
+          } else {
+            return `\`${col}\``;
+          }
+        })
+        .join(",")
+        .replace("`id`,", "");
+
+      const [results] = await db2Connection.query(
+        `SELECT * FROM training_title_financial_details where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id} and deleted_at IS NULL`
+      );
+
+      for (const row of results) {
+        const id = row["id"];
+        // Query to copy data from table2 to new_table
+        const query = `INSERT INTO training_title_financial_details (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.training_title_financial_details WHERE id = ${id};`;
+
+        const [results] = await db3Connection.query(query);
+
+        traning_title_fd_count += results.affectedRows;
+      }
+
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const syncTrainees = async (
+  db2Connection,
+  db3Connection,
+  financial_year_id,
+  old_annual_plan_id,
+  new_annual_plan_id,
+  old_training_title_id,
+  new_training_title_id
+) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const columns = await getColumns(db2Connection, "trainees");
+
+      // Create the column list and placeholders for the SQL query
+      const placeholders = columns
+        .map((col) => {
+          if (col == "submit_date") {
+            return `CASE WHEN submit_date = '0000-00-00' THEN NULL ELSE submit_date END as submit_date`;
+          } else if (col == "annual_action_plan_id") {
+            return `'${new_annual_plan_id}'`;
+          } else if (col == "training_title_id") {
+            return `'${new_training_title_id}'`;
+          } else {
+            return `\`${col}\``;
+          }
+        })
+        .join(",")
+        .replace("`id`,", "");
+
+      const [results] = await db2Connection.query(
+        `SELECT * FROM trainees where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id} and deleted_at IS NULL`
+      );
+
+      for (const row of results) {
+        const id = row["id"];
+        // Query to copy data from table2 to new_table
+        const query = `INSERT INTO trainees (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.trainees WHERE id = ${id};`;
+
+        const [results] = await db3Connection.query(query);
+
+        trainees += results.affectedRows;
+      }
+
+      resolve();
+    } catch (error) {
+      reject(error);
+    }
+  });
 };
 
 const compareDatabases = async () => {
@@ -181,6 +410,21 @@ const compareDatabases = async () => {
       console.log("Processing Table:", table);
       await copyData(db2Connection, db3Connection, table);
     }
+
+    // Remove SQL Strict Mode
+    db3Connection.query(`SET SESSION sql_mode = ''`);
+
+    await syncAnnualActionPlan(db2Connection, db3Connection);
+
+    // Remove SQL Strict Mode
+    db2Connection.query(
+      `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`
+    );
+
+    console.log("Annual Plan Count :", annual_count);
+    console.log("Training Title Count :", traning_title_count);
+    console.log("Trainees Count :", trainees);
+    console.log("Training Title FD Count :", traning_title_fd_count);
   } catch (err) {
     console.error("Error:", err.message);
   } finally {
