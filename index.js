@@ -15,6 +15,13 @@ const db2Config = {
   database: process.env.DB2_DATABASE,
 };
 
+const db3Config = {
+  host: process.env.DB3_HOST,
+  user: process.env.DB3_USER,
+  password: process.env.DB3_PASSWORD,
+  database: process.env.DB3_DATABASE,
+};
+
 // Function to get columns dynamically from a table
 const getColumns = async (connection, tableName) => {
   const [results] = await connection.query(`SHOW COLUMNS FROM ${tableName}`);
@@ -30,51 +37,86 @@ const getPrimaryKey = async (connection, tableName) => {
   return results.map((row) => row.COLUMN_NAME);
 };
 
-const syncTables = async (db1Connection, db2Connection, table) => {
-  try {
-    const columnsA = await getColumns(db1Connection, table);
-    const columnsB = await getColumns(db2Connection, table);
+const copyData = async (db1Connection, db2Connection, db3Connection, table) => {
+  const columns = await getColumns(db2Connection, table);
 
-    const primaryKey = await getPrimaryKey(db2Connection, table);
-
-    // Check if both tables have the same columns
-    if (!columnsB.every((col) => columnsA.includes(col))) {
-      throw new Error("Columns do not match");
-    }
-
-    let primary_key = primaryKey[0];
-
-    if (!primary_key)
-      switch (table) {
-        case "password_resets":
-          primary_key = "email";
-          break;
-        default:
-          primary_key = "id";
+  // Create the column list and placeholders for the SQL query
+  let columnsList = columns.join("`,`");
+  let placeholders = columns
+    .map((col) => {
+      if (col == "submit_date") {
+        return `CASE WHEN submit_date = '0000-00-00' THEN NULL ELSE submit_date END as submit_date`;
+      } else {
+        return `${col}`;
       }
+    })
+    .join(", ");
 
-    // Create the column list and placeholders for the SQL query
-    let columnsList = columnsB.join("`,`");
-    let placeholders = columnsB.map((col) => `b.${col}`).join(", ");
+  // Disable foreign key checks (if necessary)
+  const disableFKChecks = `SET FOREIGN_KEY_CHECKS=0`;
 
-    // Prepare the SQL query
-    let insertQuery = `INSERT INTO \`${db1Config.database}\`.\`${table}\` (\`${columnsList}\`)
-                         SELECT ${placeholders}
-                         FROM \`${db2Config.database}\`.\`${table}\` b
-                         LEFT JOIN \`${db1Config.database}\`.\`${table}\` a ON b.${primary_key} = a.${primary_key}
-                         WHERE a.${primary_key} IS NULL`;
+  const disableStrictMode = `SET SESSION sql_mode = ''`;
 
-    // Execute the query
-    const [results] = await db2Connection.query(insertQuery);
-    console.log("Rows inserted:", results.affectedRows);
-  } catch (err) {
-    console.error("Error:", err.message);
-  }
+  // Query to create the new table (if not exists)
+  const createTableQuery = `
+        CREATE TABLE IF NOT EXISTS \`${table}\` LIKE \`${db1Config.database}\`.\`${table}\`;
+    `;
+
+  // Disable auto increment temporarily
+  const disableAutoIncrement = `
+        ALTER TABLE \`${table}\` MODIFY COLUMN id INT NOT NULL;
+    `;
+
+  // Query to copy data from table1 to new_table
+  const copyFromTable1Query = `
+        INSERT IGNORE INTO \`${table}\` (\`${columnsList}\`)
+        SELECT ${placeholders}
+        FROM \`${db1Config.database}\`.\`${table}\`;
+    `;
+
+  // Query to copy data from table2 to new_table
+  const copyFromTable2Query = `
+        INSERT IGNORE INTO \`${table}\` (\`${columnsList}\`)
+        SELECT ${placeholders}
+        FROM \`${db2Config.database}\`.\`${table}\`;
+    `;
+
+  // Re-enable auto increment on the id column
+  const enableAutoIncrement = `
+        ALTER TABLE \`${table}\` MODIFY COLUMN id INT NOT NULL AUTO_INCREMENT;
+    `;
+
+  // Re-enable foreign key checks
+  const enableFKChecks = `SET FOREIGN_KEY_CHECKS=1`;
+
+  const enableStrictMode = `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`;
+
+  // Execute the queries sequentially
+  await db3Connection.query(disableFKChecks);
+
+  await db3Connection.query(disableStrictMode);
+
+  await db3Connection.query(createTableQuery);
+
+  await db3Connection.query(disableAutoIncrement);
+
+  const [results] = await db3Connection.query(copyFromTable1Query);
+  console.log("Table 1 Rows inserted:", results.affectedRows);
+
+  const [result1] = await db3Connection.query(copyFromTable2Query);
+  console.log("Table 2 Rows inserted:", result1.affectedRows);
+
+  await db3Connection.query(enableAutoIncrement);
+
+  await db3Connection.query(enableFKChecks);
+
+  await db3Connection.query(enableStrictMode);
 };
 
 const compareDatabases = async () => {
   const db1Connection = await mysql.createConnection(db1Config);
   const db2Connection = await mysql.createConnection(db2Config);
+  const db3Connection = await mysql.createConnection(db3Config);
 
   try {
     const [tables1, tables2] = await Promise.all([
@@ -91,7 +133,7 @@ const compareDatabases = async () => {
 
     for (const table of commonTables) {
       console.log("Processing Table:", table);
-      await syncTables(db1Connection, db2Connection, table);
+      await copyData(db1Connection, db2Connection, db3Connection, table);
     }
   } catch (err) {
     console.error("Error:", err.message);
