@@ -112,8 +112,23 @@ const copyData = async (db2Connection, db3Connection, table) => {
 
   if (autIncCol[0]) await db3Connection.query(disableAutoIncrement);
 
-  const [results] = await db3Connection.query(copyFromTable1Query);
-  console.log("Table 1 Rows inserted:", results.affectedRows);
+  if (
+    ![
+      "attribute_options",
+      "categories",
+      "dashboard_widget_settings",
+      "media_files",
+      "media_folders",
+      "media_settings",
+      "menus",
+      "menu_locations",
+      "menu_nodes",
+      "meta_boxes",
+    ].includes(table)
+  ) {
+    const [results] = await db3Connection.query(copyFromTable1Query);
+    console.log("Table 1 Rows inserted:", results.affectedRows);
+  }
 
   const [result1] = await db3Connection.query(copyFromTable2Query);
   console.log("Table 2 Rows inserted:", result1.affectedRows);
@@ -131,19 +146,19 @@ const compareDatabases = async () => {
   const db3Connection = await mysql.createConnection(db3Config);
 
   try {
-    const [tables1, tables2] = await Promise.all([
+    const [tables] = await Promise.all([
       //   db1Connection.query("SHOW TABLES"),
       db2Connection.query("SHOW TABLES"),
     ]);
 
     // const tableNames1 = tables1[0].map((row) => Object.values(row)[0]);
-    const tableNames2 = tables2[0].map((row) => Object.values(row)[0]);
+    const tableNames = tables[0].map((row) => Object.values(row)[0]);
 
     // const commonTables = tableNames1.filter((table) =>
     //   tableNames2.includes(table)
     // );
 
-    for (const table of tableNames2) {
+    for (const table of tableNames) {
       console.log("Processing Table:", table);
       await copyData(db2Connection, db3Connection, table);
     }
