@@ -36,20 +36,20 @@ const getColumns = async (connection, tableName) => {
 const getAutoIncCol = async (connection, tableName) => {
   const [results] = await connection.query(`SELECT 
     COLUMN_NAME 
-FROM
+FROM 
     information_schema.COLUMNS 
-WHERE
-    TABLE_SCHEMA = '${db1Config.database}' 
+WHERE 
+    TABLE_SCHEMA = '${db3Config.database}' 
     AND TABLE_NAME = '${tableName}'
     AND EXTRA LIKE '%auto_increment%';
 `);
   return results.map((row) => row.COLUMN_NAME);
 };
 
-const copyData = async (db1Connection, table) => {
-  const columns = await getColumns(db1Connection, table);
+const copyData = async (db2Connection, db3Connection, table) => {
+  const columns = await getColumns(db2Connection, table);
 
-  const autIncCol = await getAutoIncCol(db1Connection, table);
+  const autIncCol = await getAutoIncCol(db2Connection, table);
 
   // Create the column list and placeholders for the SQL query
   let columnsList = columns.join("`,`");
@@ -82,12 +82,12 @@ const copyData = async (db1Connection, table) => {
         ALTER TABLE \`${table}\` MODIFY COLUMN ${autIncCol[0]} INT NOT NULL;
     `;
 
-  // // Query to copy data from table1 to new_table
-  // const copyFromTable1Query = `
-  //       INSERT IGNORE INTO \`${table}\` (\`${columnsList}\`)
-  //       SELECT ${placeholders}
-  //       FROM \`${db1Config.database}\`.\`${table}\`;
-  //   `;
+  // Query to copy data from table1 to new_table
+  const copyFromTable1Query = `
+        INSERT IGNORE INTO \`${table}\` (\`${columnsList}\`)
+        SELECT ${placeholders}
+        FROM \`${db1Config.database}\`.\`${table}\`;
+    `;
 
   // Query to copy data from table2 to new_table
   const copyFromTable2Query = `
@@ -107,62 +107,76 @@ const copyData = async (db1Connection, table) => {
   const enableStrictMode = `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`;
 
   // Execute the queries sequentially
-  await db1Connection.query(disableFKChecks);
+  //   await db3Connection.query(disableFKChecks);
 
-  await db1Connection.query(disableStrictMode);
+  await db3Connection.query(disableStrictMode);
 
-  // await db1Connection.query(dropTableQuery);
+  await db3Connection.query(dropTableQuery);
 
-  // await db1Connection.query(createTableQuery);
+  await db3Connection.query(createTableQuery);
 
   //   if (autIncCol[0]) await db3Connection.query(disableAutoIncrement);
 
   // Data Backup
 
-  // if (
-  //   ![
-  //     "backend_menus",
-  //     "menus",
-  //     "menu_category",
-  //     "menu_locations",
-  //     "menu_nodes",
-  //     "pages",
-  //     "categories",
-  //     "posts",
-  //     "simple_sliders",
-  //     "simple_slider_items",
-  //     "tags",
-  //     "settings",
-  //   ].includes(table)
-  // ) {
-  await db1Connection.query(`TRUNCATE TABLE \`${table}\``);
+  //   "attribute_options",
+  //       "categories",
+  //       "dashboard_widget_settings",
+  //       "media_files",
+  //       "media_folders",
+  //       "media_settings",
+  //       "menus",
+  //       "menu_locations",
+  //       "menu_nodes",
+  //       "meta_boxes",
+  //       "pages",
+  //       "settings",
+  //       "simple_sliders",
+  //       "simple_slider_items",
 
-  const [results] = await db1Connection.query(copyFromTable2Query);
-  console.log(`Table: ${table}, Rows inserted: ${results.affectedRows}`);
-  // }
-  // else if (
-  //   ![
-  //     "annual_action_plan",
-  //     "trainees",
-  //     "training_title",
-  //     "training_title_financial_details",
-  //   ].includes(table)
-  // ) {
-  //   const [results] = await db3Connection.query(copyFromTable1Query);
-  //   console.log("Table: Stage, Rows inserted:", results.affectedRows);
-  // }
+  if (
+    ![
+      "backend_menus",
+      "menus",
+      "menu_category",
+      "menu_locations",
+      "menu_nodes",
+      "pages",
+      "categories",
+      "posts",
+      "simple_sliders",
+      "simple_slider_items",
+      "tags",
+      "settings",
+    ].includes(table)
+  ) {
+    const [result1] = await db3Connection.query(copyFromTable1Query);
+    console.log("Table: Live, Rows inserted:", result1.affectedRows);
+  }
+
+  if (
+    ![
+      "annual_action_plan",
+      "trainees",
+      "training_title",
+      "training_title_financial_details",
+    ].includes(table)
+  ) {
+    const [result2] = await db3Connection.query(copyFromTable2Query);
+    console.log("Table: Stage, Rows inserted:", result2.affectedRows);
+  }
 
   //   if (autIncCol[0]) await db3Connection.query(enableAutoIncrement);
 
-  await db1Connection.query(enableFKChecks);
+  //   await db3Connection.query(enableFKChecks);
 
-  await db1Connection.query(enableStrictMode);
+  await db3Connection.query(enableStrictMode);
 };
 
-const syncAnnualActionPlan = async (db1Connection, db2Connection) => {
+const syncAnnualActionPlan = async (db2Connection, db3Connection) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const columns = await getColumns(db1Connection, "annual_action_plan");
+      const columns = await getColumns(db2Connection, "annual_action_plan");
 
       // Create the column list and placeholders for the SQL query
       const placeholders = columns
@@ -177,7 +191,7 @@ const syncAnnualActionPlan = async (db1Connection, db2Connection) => {
         .replace("`id`,", "");
 
       const [results] = await db2Connection.query(
-        `SELECT id FROM annual_action_plan where financial_year_id = 5`
+        `SELECT id FROM annual_action_plan where financial_year_id = 5 and deleted_at IS NULL`
       );
 
       for (const row of results) {
@@ -185,11 +199,11 @@ const syncAnnualActionPlan = async (db1Connection, db2Connection) => {
         // Query to copy data from table2 to new_table
         const query = `INSERT INTO annual_action_plan (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.annual_action_plan where id = ${id};`;
 
-        const [results] = await db1Connection.query(query);
+        const [results] = await db3Connection.query(query);
 
         await syncTrainingTitles(
-          db1Connection,
           db2Connection,
+          db3Connection,
           5,
           id,
           results.insertId
@@ -206,15 +220,15 @@ const syncAnnualActionPlan = async (db1Connection, db2Connection) => {
 };
 
 const syncTrainingTitles = async (
-  db1Connection,
   db2Connection,
+  db3Connection,
   financial_year_id,
   old_annual_plan_id,
   new_annual_plan_id
 ) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const columns = await getColumns(db1Connection, "training_title");
+      const columns = await getColumns(db2Connection, "training_title");
 
       // Create the column list and placeholders for the SQL query
       const placeholders = columns
@@ -231,7 +245,7 @@ const syncTrainingTitles = async (
         .replace("`id`,", "");
 
       const [results] = await db2Connection.query(
-        `SELECT id FROM training_title where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id}`
+        `SELECT * FROM training_title where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and deleted_at IS NULL`
       );
 
       for (const row of results) {
@@ -239,11 +253,11 @@ const syncTrainingTitles = async (
         // Query to copy data from table2 to new_table
         const query = `INSERT INTO training_title (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.training_title WHERE id = ${id};`;
 
-        const [results] = await db1Connection.query(query);
+        const [results] = await db3Connection.query(query);
 
         await syncTTFD(
-          db1Connection,
           db2Connection,
+          db3Connection,
           financial_year_id,
           old_annual_plan_id,
           new_annual_plan_id,
@@ -252,8 +266,8 @@ const syncTrainingTitles = async (
         );
 
         await syncTrainees(
-          db1Connection,
           db2Connection,
+          db3Connection,
           financial_year_id,
           old_annual_plan_id,
           new_annual_plan_id,
@@ -272,8 +286,8 @@ const syncTrainingTitles = async (
 };
 
 const syncTTFD = async (
-  db1Connection,
   db2Connection,
+  db3Connection,
   financial_year_id,
   old_annual_plan_id,
   new_annual_plan_id,
@@ -283,7 +297,7 @@ const syncTTFD = async (
   return new Promise(async (resolve, reject) => {
     try {
       const columns = await getColumns(
-        db1Connection,
+        db2Connection,
         "training_title_financial_details"
       );
 
@@ -304,7 +318,7 @@ const syncTTFD = async (
         .replace("`id`,", "");
 
       const [results] = await db2Connection.query(
-        `SELECT id FROM training_title_financial_details where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id}`
+        `SELECT * FROM training_title_financial_details where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id} and deleted_at IS NULL`
       );
 
       for (const row of results) {
@@ -312,7 +326,7 @@ const syncTTFD = async (
         // Query to copy data from table2 to new_table
         const query = `INSERT INTO training_title_financial_details (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.training_title_financial_details WHERE id = ${id};`;
 
-        const [results] = await db1Connection.query(query);
+        const [results] = await db3Connection.query(query);
 
         traning_title_fd_count += results.affectedRows;
       }
@@ -325,8 +339,8 @@ const syncTTFD = async (
 };
 
 const syncTrainees = async (
-  db1Connection,
   db2Connection,
+  db3Connection,
   financial_year_id,
   old_annual_plan_id,
   new_annual_plan_id,
@@ -335,7 +349,7 @@ const syncTrainees = async (
 ) => {
   return new Promise(async (resolve, reject) => {
     try {
-      const columns = await getColumns(db1Connection, "trainees");
+      const columns = await getColumns(db2Connection, "trainees");
 
       // Create the column list and placeholders for the SQL query
       const placeholders = columns
@@ -354,7 +368,7 @@ const syncTrainees = async (
         .replace("`id`,", "");
 
       const [results] = await db2Connection.query(
-        `SELECT id FROM trainees where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id}`
+        `SELECT * FROM trainees where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id} and deleted_at IS NULL`
       );
 
       for (const row of results) {
@@ -362,7 +376,7 @@ const syncTrainees = async (
         // Query to copy data from table2 to new_table
         const query = `INSERT INTO trainees (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.trainees WHERE id = ${id};`;
 
-        const [results] = await db1Connection.query(query);
+        const [results] = await db3Connection.query(query);
 
         trainees += results.affectedRows;
       }
@@ -375,14 +389,14 @@ const syncTrainees = async (
 };
 
 const compareDatabases = async () => {
-  const db1Connection = await mysql.createConnection(db1Config);
+  //   const db1Connection = await mysql.createConnection(db1Config);
   const db2Connection = await mysql.createConnection(db2Config);
-  // const db3Connection = await mysql.createConnection(db3Config);
+  const db3Connection = await mysql.createConnection(db3Config);
 
   try {
     const [tables] = await Promise.all([
       //   db1Connection.query("SHOW TABLES"),
-      db1Connection.query("SHOW TABLES"),
+      db2Connection.query("SHOW TABLES"),
     ]);
 
     // const tableNames1 = tables1[0].map((row) => Object.values(row)[0]);
@@ -393,34 +407,17 @@ const compareDatabases = async () => {
     // );
 
     for (const table of tableNames) {
-      if (
-        [
-          "backend_menus",
-          "menus",
-          "menu_category",
-          "menu_locations",
-          "menu_nodes",
-          "pages",
-          "categories",
-          "posts",
-          "simple_sliders",
-          "simple_slider_items",
-          "tags",
-          "settings",
-        ].includes(table)
-      ) {
-        console.log("Processing Table:", table);
-        await copyData(db1Connection, table);
-      }
+      console.log("Processing Table:", table);
+      await copyData(db2Connection, db3Connection, table);
     }
 
     // Remove SQL Strict Mode
-    db1Connection.query(`SET SESSION sql_mode = ''`);
+    db3Connection.query(`SET SESSION sql_mode = ''`);
 
-    await syncAnnualActionPlan(db1Connection, db2Connection);
+    await syncAnnualActionPlan(db2Connection, db3Connection);
 
     // Remove SQL Strict Mode
-    db1Connection.query(
+    db2Connection.query(
       `SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ENGINE_SUBSTITUTION'`
     );
 
@@ -432,8 +429,8 @@ const compareDatabases = async () => {
     console.error("Error:", err.message);
   } finally {
     // await db1Connection.end();
-    await db1Connection.end();
     await db2Connection.end();
+    await db3Connection.end();
   }
 };
 
