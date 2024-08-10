@@ -29,6 +29,7 @@ let users_count = 0;
 let entrepreneurs_count = 0;
 let traning_title_fd_count = 0;
 let attendance_count = 0;
+let msme_count = 0;
 
 // Function to get columns dynamically from a table
 const getColumns = async (connection, tableName) => {
@@ -483,6 +484,8 @@ const syncEntrepreneurs = async (
         `SELECT id, user_id FROM entrepreneurs where email = '${ent_data[0]?.email}'`
       );
 
+      await syncMSME(db1Connection, ent_data[0]?.email);
+
       if (ent_result[0]?.id) {
         if (ent_result[0]?.user_id != new_user_id) {
           const query = `UPDATE entrepreneurs SET user_id = '${new_user_id}' WHERE id = ${old_entrepreneur_id}`;
@@ -500,6 +503,36 @@ const syncEntrepreneurs = async (
       entrepreneurs_count += results.affectedRows;
 
       resolve(results.insertId);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const syncMSME = async (db1Connection, email) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const columns = await getColumns(db1Connection, "msme_candidate_details");
+
+      // Create the column list and placeholders for the SQL query
+      const placeholders = columns
+        .map((col) => `\`${col}\``)
+        .join(",")
+        .replace("`id`,", "");
+
+      const [msme_result] = await db1Connection.query(
+        `SELECT id FROM msme_candidate_details where email = '${email}'`
+      );
+
+      if (!msme_result[0]?.id) {
+        const query = `INSERT INTO msme_candidate_details (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.msme_candidate_details WHERE email = '${email}'`;
+
+        const [results] = await db1Connection.query(query);
+
+        msme_count += results.affectedRows;
+      }
+
+      resolve();
     } catch (error) {
       reject(error);
     }
@@ -616,6 +649,7 @@ const compareDatabases = async () => {
     console.log("Trainees Count :", trainees_count);
     console.log("Training Title FD Count :", traning_title_fd_count);
     console.log("Attendance Count :", attendance_count);
+    console.log("MSME Count :", msme_count);
   } catch (err) {
     console.error("Error:", err.message);
   } finally {
