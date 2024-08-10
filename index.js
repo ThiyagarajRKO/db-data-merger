@@ -24,8 +24,11 @@ const db3Config = {
 
 let annual_count = 0;
 let traning_title_count = 0;
-let trainees = 0;
+let trainees_count = 0;
+let users_count = 0;
+let entrepreneurs_count = 0;
 let traning_title_fd_count = 0;
+let attendance_count = 0;
 
 // Function to get columns dynamically from a table
 const getColumns = async (connection, tableName) => {
@@ -343,19 +346,19 @@ const syncTrainees = async (
 
       for (const row of results) {
         const id = row["id"];
-        const user_id = row["user_id"];
-        const entrepreneur_id = row["entrepreneur_id"];
+        const old_user_id = row["user_id"];
+        const old_entrepreneur_id = row["entrepreneur_id"];
 
         const new_user_id = await syncUser(
           db1Connection,
           db2Connection,
-          user_id
+          old_user_id
         );
 
         const new_entrepreneur_id = await syncEntrepreneurs(
           db1Connection,
           db2Connection,
-          entrepreneur_id,
+          old_entrepreneur_id,
           new_user_id
         );
 
@@ -384,7 +387,19 @@ const syncTrainees = async (
 
         const [results] = await db1Connection.query(query);
 
-        trainees += results.affectedRows;
+        await syncAttendance(
+          db1Connection,
+          db2Connection,
+          financial_year_id,
+          old_annual_plan_id,
+          new_annual_plan_id,
+          old_training_title_id,
+          new_training_title_id,
+          old_entrepreneur_id,
+          new_entrepreneur_id
+        );
+
+        trainees_count += results.affectedRows;
       }
 
       resolve();
@@ -424,6 +439,8 @@ const syncUser = async (db1Connection, db2Connection, old_user_id) => {
       const query = `INSERT INTO users (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.users WHERE email = '${user_data[0]?.email}'`;
 
       const [results] = await db1Connection.query(query);
+
+      users_count += results.affectedRows;
 
       resolve(results.insertId);
     } catch (error) {
@@ -480,7 +497,62 @@ const syncEntrepreneurs = async (
 
       const [results] = await db1Connection.query(query);
 
+      entrepreneurs_count += results.affectedRows;
+
       resolve(results.insertId);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const syncAttendance = async (
+  db1Connection,
+  db2Connection,
+  financial_year_id,
+  old_annual_plan_id,
+  new_annual_plan_id,
+  old_training_title_id,
+  new_training_title_id,
+  old_entrepreneur_id,
+  new_entrepreneur_id
+) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const columns = await getColumns(db1Connection, "attendance");
+
+      // Create the column list and placeholders for the SQL query
+      const placeholders = columns
+        .map((col) => {
+          if (col == "submit_date") {
+            return `CASE WHEN submit_date = '0000-00-00' THEN NULL ELSE submit_date END as submit_date`;
+          } else if (col == "annual_action_plan_id") {
+            return `'${new_annual_plan_id}'`;
+          } else if (col == "training_title_id") {
+            return `'${new_training_title_id}'`;
+          } else if (col == "entrepreneur_id") {
+            return `'${new_entrepreneur_id}'`;
+          } else {
+            return `\`${col}\``;
+          }
+        })
+        .join(",")
+        .replace("`id`,", "");
+
+      const [att_result] = await db2Connection.query(
+        `SELECT COUNT(id) as count FROM attendance where financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id} and entrepreneur_id = ${old_entrepreneur_id}`
+      );
+
+      if (att_result[0]?.count > 0) {
+        // Query to copy data from table2 to new_table
+        const query = `INSERT INTO attendance (${columns.join("`,`").replace("id`,", "")}\`) SELECT ${placeholders} FROM \`${db2Config.database}\`.attendance WHERE financial_year_id = ${financial_year_id} and annual_action_plan_id = ${old_annual_plan_id} and training_title_id = ${old_training_title_id} and entrepreneur_id = ${old_entrepreneur_id}`;
+
+        const [results] = await db1Connection.query(query);
+
+        attendance_count += results.affectedRows;
+      }
+
+      resolve();
     } catch (error) {
       reject(error);
     }
@@ -539,8 +611,11 @@ const compareDatabases = async () => {
 
     console.log("Annual Plan Count :", annual_count);
     console.log("Training Title Count :", traning_title_count);
-    console.log("Trainees Count :", trainees);
+    console.log("User Count :", users_count);
+    console.log("Entrepreneurs Count :", entrepreneurs_count);
+    console.log("Trainees Count :", trainees_count);
     console.log("Training Title FD Count :", traning_title_fd_count);
+    console.log("Attendance Count :", attendance_count);
   } catch (err) {
     console.error("Error:", err.message);
   } finally {
