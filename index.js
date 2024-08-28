@@ -625,6 +625,7 @@ const compareDatabases = async () => {
           "simple_slider_items",
           "tags",
           "settings",
+          "language_meta",
         ].includes(table)
       ) {
         console.log("Processing Table:", table);
