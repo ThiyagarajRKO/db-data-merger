@@ -395,6 +395,8 @@ const syncTrainee = (
 
       // Log the inserted ID
       console.log("Trainee inserted with ID: ", traineeInsertResult?.insertId);
+
+      resolve(traineeInsertResult?.insertId);
     } catch (err) {
       reject(err?.message || err);
     }
