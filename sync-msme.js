@@ -15,28 +15,10 @@ const db2Config = {
   database: process.env.DB2_DATABASE,
 };
 
-// Function to get columns dynamically from a table
-const getColumns = async (connection, tableName) => {
-  const [results] = await connection.query(`SHOW COLUMNS FROM ${tableName}`);
-  return results.map((row) => row.Field);
-};
-
-const getPrimaryKey = async (connection, tableName) => {
-  const [results] = await connection.query(`SELECT COLUMN_NAME
-  FROM INFORMATION_SCHEMA.COLUMNS
-  WHERE TABLE_SCHEMA = '${db2Config.database}'
-  AND TABLE_NAME = '${tableName}'
-  AND COLUMN_KEY = 'PRI'`);
-  return results.map((row) => row.COLUMN_NAME);
-};
-
 const syncMissingMSMEData = (db1Connection, db2Connection) => {
   return new Promise(async (resolve, reject) => {
     try {
-      // // const columnsA = await getColumns(db1Connection, table);
-      // const columnsB = await getColumns(db2Connection, table);
-
-      // const primaryKey = await getPrimaryKey(db2Connection, table);
+      let totalCompleted = 0;
 
       // SQL count query
       const msmeCountQuery = `SELECT COUNT(id) as count FROM msme_candidate_details WHERE created_at BETWEEN '2024-08-06 00:00:00' AND '2024-09-26 23:59:59'`;
@@ -53,6 +35,7 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
       console.log("Total Loop : ", totalLoop);
 
       for (let i = 0; i < totalLoop; i++) {
+        console.log("Current Loop Count :", i + 1);
         // Prepare the SQL query
         const offset = i * limit; //calculaye this
 
@@ -66,7 +49,7 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
 
           const newMSMEId = await syncMSME(db1Connection, currentData);
 
-          if (!currentData?.id) continue; // skip if id is null
+          if (!currentData?.id) return reject({ message: "Invalid msme id" }); // skip if id is null
 
           const newUserId = await syncUser(
             db1Connection,
@@ -84,6 +67,8 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
             newMSMEId
           );
 
+          if (!entIds?.newId) continue;
+
           await syncTrainee(
             db1Connection,
             db2Connection,
@@ -91,12 +76,16 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
             entIds?.oldId,
             entIds?.newId
           );
+
+          totalCompleted++;
+
+          console.log("Rows Completed: ", totalCompleted);
         }
       }
 
       resolve();
     } catch (err) {
-      console.error("Error:", err.message || err);
+      console.error("Error:", err?.message || err);
       reject(err);
     }
   });
@@ -105,7 +94,7 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
 const syncMSME = (db1Connection, msmeCandidateData) => {
   return new Promise(async (resolve, reject) => {
     try {
-      if (!msmeCandidateData) return reject({ message: "Invalid data!" });
+      if (!msmeCandidateData?.id) return reject({ message: "Invalid data!" });
 
       // Getting Entrepreneurs data
       // Inserting MSME Candidate data into another database (db1Connection)
@@ -151,11 +140,11 @@ const syncMSME = (db1Connection, msmeCandidateData) => {
         values
       );
 
-      // Log the inserted ID
-      console.log(
-        "MSME Candidate inserted with ID: ",
-        msmeCandidateInsertResult?.insertId
-      );
+      // // Log the inserted ID
+      // console.log(
+      //   "MSME Candidate inserted with ID: ",
+      //   msmeCandidateInsertResult?.insertId
+      // );
 
       resolve(msmeCandidateInsertResult?.insertId);
     } catch (err) {
@@ -213,8 +202,8 @@ const syncUser = (db1Connection, db2Connection, email) => {
         values
       );
 
-      // Log the inserted ID
-      console.log("User inserted with ID: ", userInsertResult?.insertId);
+      // // Log the inserted ID
+      // console.log("User inserted with ID: ", userInsertResult?.insertId);
 
       resolve(userInsertResult?.insertId);
     } catch (err) {
@@ -242,7 +231,11 @@ const syncEntrepreneur = (
         `SELECT * FROM entrepreneurs WHERE msme_candidate_detail_id = ${oldMSMEId} LIMIT 1`
       );
 
-      if (entResult.length <= 0) return;
+      if (entResult.length <= 0)
+        return resolve({
+          oldId: null,
+          newId: null,
+        });
 
       const entrepreneurData = entResult[0];
 
@@ -317,11 +310,11 @@ const syncEntrepreneur = (
         values
       );
 
-      // Log the inserted ID
-      console.log(
-        "Entrepreneur inserted with ID: ",
-        entrepreneurInsertResult?.insertId
-      );
+      // // Log the inserted ID
+      // console.log(
+      //   "Entrepreneur inserted with ID: ",
+      //   entrepreneurInsertResult?.insertId
+      // );
 
       resolve({
         oldId: entrepreneurData?.id,
@@ -352,7 +345,8 @@ const syncTrainee = (
       const [traineeResult] = await db2Connection.query(traineeDataQuery);
       // console.log("traineeResult :", traineeResult.length);
 
-      if (traineeResult.length <= 0) return;
+      if (traineeResult.length <= 0) return resolve();
+
       const traineeData = traineeResult[0]; // Extract the first (and only) result
 
       // Inserting Trainee data into another database (db1Connection)
@@ -393,8 +387,8 @@ const syncTrainee = (
         values
       );
 
-      // Log the inserted ID
-      console.log("Trainee inserted with ID: ", traineeInsertResult?.insertId);
+      // // Log the inserted ID
+      // console.log("Trainee inserted with ID: ", traineeInsertResult?.insertId);
 
       resolve(traineeInsertResult?.insertId);
     } catch (err) {
