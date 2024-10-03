@@ -52,7 +52,7 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
       console.log("Total Count : ", msmeMissingRowCount);
       console.log("Total Loop : ", totalLoop);
 
-      for (let i = 0; i < 1; i++) {
+      for (let i = 0; i < totalLoop; i++) {
         // Prepare the SQL query
         const offset = i * limit; //calculaye this
 
