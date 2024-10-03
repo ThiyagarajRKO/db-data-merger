@@ -47,7 +47,11 @@ const syncMissingMSMEData = (db1Connection, db2Connection) => {
         for (let m = 0; m < msmeResult.length; m++) {
           const currentData = msmeResult[m];
 
+          console.log("Current MSME ID : ", currentData?.id);
+
           const newMSMEId = await syncMSME(db1Connection, currentData);
+
+          console.log("New MSME ID : ", newMSMEId);
 
           if (!currentData?.id) return reject({ message: "Invalid msme id" }); // skip if id is null
 
